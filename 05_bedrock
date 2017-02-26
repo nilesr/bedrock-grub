@@ -112,12 +112,12 @@ for kernel_strata in $(bri -L); do
     linux=
     find_kernel "$kernel_strata"
     find_initrd_for_kernel "$kernel_strata"
-    if [ -z "$linux" ]
+    if [ -z "$linux" ] || ! [ -e "$linux" ]
     then
         log "$kernel_strata does not appear to provide a kernel"
         continue
     fi
-    if [ -z "$linux" ]
+    if [ -z "$initrd" ]
     then
         log "$kernel_strata does not appear to provide a matching initramfs for $linux . Please make sure you compiled with fuse support"
     fi
