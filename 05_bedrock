@@ -109,12 +109,17 @@ find_initrd_for_kernel() {
 
  
 for kernel_strata in $(bri -L); do
+    linux=
     find_kernel "$kernel_strata"
     find_initrd_for_kernel "$kernel_strata"
-    if [ -z "$initrd" ]
+    if [ -z "$linux" ]
     then
-        log "$kernel_strata does not appear to provide a kernel/initrd"
+        log "$kernel_strata does not appear to provide a kernel"
         continue
+    fi
+    if [ -z "$linux" ]
+    then
+        log "$kernel_strata does not appear to provide a matching initramfs for $linux . Please make sure you compiled with fuse support"
     fi
     log "Found kernel in $kernel_strata: $basename"
     path_to_kernel=/bedrock/strata/"$kernel_strata"/boot/
@@ -144,7 +149,10 @@ for kernel_strata in $(bri -L); do
         # path_to_kernel is like /bedrock/strata/fedora/boot/ (set to /boot/ for kernels in the rootfs)
         # basename is like vmlinuz-4.9
         echo "	linux $grub_root""$path_to_kernel""$basename" "$GRUB_CMDLINE_LINUX" rw init=/bedrock/sbin/brn root="$init_root" strata="$init_strata" strata_init="$init"
-        echo "	initrd $grub_root""$path_to_kernel""$(basename $initrd)"
+        if ! [ -z "$initrd" ]
+        then
+            echo "	initrd $grub_root""$path_to_kernel""$(basename $initrd)"
+        fi
 
         echo "}"
     done
