@@ -1,0 +1,136 @@
+#!/bedrock/libexec/busybox sh
+
+log() {
+    echo "$@" >&2
+    echo "# $@"
+}
+
+if ! [ -d /bedrock ]
+then
+	log "No bedrock linux install, not continuing"
+	exit
+fi
+
+if [ -z "$GRUB_CMDLINE_LINUX" ]
+then
+	GRUB_CMDLINE_LINUX="rw quiet enforcing=0"
+fi
+
+rootfs=$(bri -a rootfs)
+
+root=$(grep -oE 'root=[^ ]*' /proc/cmdline | sed s/root=// | sed 's#/dev/##')
+log "debug - root is $root"
+if [ -z "$root" ] || echo "$root" | grep -q UUID=
+then
+	root=$(lsblk -r|grep /bedrock/strata/"$rootfs"| tail -n 1 | cut -d ' ' -f 1) # not ideal
+	log "debug - root was garbage so guessing $root"
+fi
+
+using_gpt="true"
+if ! which gdisk &> /dev/null
+then
+    using_gpt="false"
+else
+    if gdisk -l /dev/"$(echo "$root"|cut -c -3)"|grep -q "GPT: not present" # another dirty hack
+    then
+        using_gpt="false"
+    fi
+fi
+
+grub_root="(hd"
+case $(echo "$root"|cut -c -3) in
+	sda)
+		grub_root=$grub_root"0" ;;
+	sdb)
+		grub_root=$grub_root"1" ;;
+	sdc)
+		grub_root=$grub_root"2" ;;
+	sdd)
+		grub_root=$grub_root"3" ;;
+esac
+grub_root=$grub_root","
+if [ "$using_gpt" = false ]
+then
+	grub_root="$grub_root"msdos
+fi
+grub_root="$grub_root"$(echo "$root"|cut -c 4-)')'
+
+# as long as one of these works we're good
+source /usr/share/grub/grub-mkconfig_lib
+source "$pkgdatadir/grub-mkconfig_lib"
+
+
+find_kernel() {
+    list=
+    for i in /bedrock/strata/"$1"/boot/vmlinuz-* ; do
+        list="$list $i"
+    done
+
+    linux=$(version_find_latest $list) # Do not double quote $list, it needs to expand
+    basename=$(basename "$linux")
+    version=$(echo "$basename" | sed -e "s,vmlinuz-,,g")
+    alt_version=$(echo "$version" | sed -e "s,\.old$,,g")
+}
+
+find_initrd_for_kernel() {
+    initrd=
+    for i in "initrd.img-${version}" "initrd-${version}.img" "initrd-${version}.gz" \
+       "initrd-${version}" "initramfs-${version}.img" \
+       "initrd.img-${alt_version}" "initrd-${alt_version}.img" \
+       "initrd-${alt_version}" "initramfs-${alt_version}.img" \
+       "initramfs-vmlinuz-${alt_version}.img" \
+       "initramfs-genkernel-${version}" \
+       "initramfs-genkernel-${alt_version}" \
+       "initramfs-genkernel-${GENKERNEL_ARCH}-${version}" \
+       "initramfs-genkernel-${GENKERNEL_ARCH}-${alt_version}"; do
+
+        if [ -e "/bedrock/strata/$1/boot/$i" ]
+        then
+            #if grub_file_is_not_garbage "$i"
+            #then
+                initrd="$i"
+                break
+            #fi
+        fi
+    done
+}
+
+
+ 
+for kernel_strata in $(bri -L); do
+    find_kernel "$kernel_strata"
+    find_initrd_for_kernel "$kernel_strata"
+    if [ -z "$initrd" ]
+    then
+        log "$kernel_strata does not appear to provide a kernel/initrd"
+        continue
+    fi
+    log "Found kernel in $kernel_strata: $basename"
+    path_to_kernel=/bedrock/strata/"$kernel_strata"/boot/
+    if [ "$(bri -a rootfs)" = $kernel_strata ]
+    then
+        path_to_kernel=/boot/
+    fi
+
+    for init_strata in $(bri -L); do
+        if [ "$(bri -c "$init_strata" enable)" = "manual" ]
+        then
+            log "Strata $init_strata is not set to be enabled on boot. Not configuring"
+            continue
+        fi
+        init="$(bri -c "$init_strata" init)"
+        if [ -z "$init" ]
+        then
+            echo "# Strata $init_strata does not have an init. It's probably rootfs or global or something"
+            continue
+        fi
+        echo "menuentry 'Bedrock Linux - kernel from $kernel_strata - init from $init_strata - $init' {"
+        # grub_root is like (hd0,msdos6)
+        # path_to_kernel is like /bedrock/strata/fedora/boot/ (set to /boot/ for kernels in the rootfs)
+        # basename is like vmlinuz-4.9
+        echo "	linux $grub_root""$path_to_kernel""$basename" "$GRUB_CMDLINE_LINUX" rw init=/bedrock/sbin/brn root=/dev/"$root" strata="$init_strata" strata_init="$init"
+        echo "	initrd $grub_root""$path_to_kernel""$(basename $initrd)"
+
+        echo "}"
+    done
+done
