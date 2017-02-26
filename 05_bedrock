@@ -18,42 +18,53 @@ fi
 
 rootfs=$(bri -a rootfs)
 
-root=$(grep -oE 'root=[^ ]*' /proc/cmdline | sed s/root=// | sed 's#/dev/##')
+init_root=$(grep -oE 'root=[^ ]*' /proc/cmdline | sed s/root=//)
+# DEBUG ONLY
+#init_root="UUID=your-uuid-goes-here"
+# END DEBUG
+root=$(echo $init_root | sed 's#/dev/##')
 log "debug - root is $root"
-if [ -z "$root" ] || echo "$root" | grep -q UUID=
+if echo "$root" | grep -q UUID=
 then
-	root=$(lsblk -r|grep /bedrock/strata/"$rootfs"| tail -n 1 | cut -d ' ' -f 1) # not ideal
-	log "debug - root was garbage so guessing $root"
-fi
-
-using_gpt="true"
-if ! which gdisk &> /dev/null
-then
-    using_gpt="false"
+    grub_root=
+    grub_search="search --no-floppy --fs-uuid --set=root "$(echo "$root"|sed 's/UUID=//')
+    init_root="$root" # like UUID=aldsfjlasdjfladjsflakdjsf
 else
-    if gdisk -l /dev/"$(echo "$root"|cut -c -3)"|grep -q "GPT: not present" # another dirty hack
+    if [ -z "$root" ]
+    then
+        root=$(lsblk -r|grep /bedrock/strata/"$rootfs"| tail -n 1 | cut -d ' ' -f 1) # not ideal
+        log "debug - root was garbage so guessing $root"
+    fi
+
+    using_gpt="true"
+    if ! which gdisk &> /dev/null
     then
         using_gpt="false"
+    else
+        if gdisk -l /dev/"$(echo "$root"|cut -c -3)"|grep -q "GPT: not present" # another dirty hack
+        then
+            using_gpt="false"
+        fi
     fi
-fi
 
-grub_root="(hd"
-case $(echo "$root"|cut -c -3) in
-	sda)
-		grub_root=$grub_root"0" ;;
-	sdb)
-		grub_root=$grub_root"1" ;;
-	sdc)
-		grub_root=$grub_root"2" ;;
-	sdd)
-		grub_root=$grub_root"3" ;;
-esac
-grub_root=$grub_root","
-if [ "$using_gpt" = false ]
-then
-	grub_root="$grub_root"msdos
-fi
-grub_root="$grub_root"$(echo "$root"|cut -c 4-)')'
+    grub_root="(hd"
+    case $(echo "$root"|cut -c -3) in
+        sda)
+            grub_root=$grub_root"0" ;;
+        sdb)
+            grub_root=$grub_root"1" ;;
+        sdc)
+            grub_root=$grub_root"2" ;;
+        sdd)
+            grub_root=$grub_root"3" ;;
+    esac
+    grub_root=$grub_root","
+    if [ "$using_gpt" = false ]
+    then
+        grub_root="$grub_root"msdos
+    fi
+    grub_root="$grub_root"$(echo "$root"|cut -c 4-)')'
+fi # uuid/else
 
 # as long as one of these works we're good
 source /usr/share/grub/grub-mkconfig_lib
@@ -62,7 +73,7 @@ source "$pkgdatadir/grub-mkconfig_lib"
 
 find_kernel() {
     list=
-    for i in /bedrock/strata/"$1"/boot/vmlinuz-* ; do
+    for i in /bedrock/strata/"$1"/boot/kernel-* /bedrock/strata/"$1"/boot/vmlinuz-* ; do
         list="$list $i"
     done
 
@@ -125,10 +136,14 @@ for kernel_strata in $(bri -L); do
             continue
         fi
         echo "menuentry 'Bedrock Linux - kernel from $kernel_strata - init from $init_strata - $init' {"
+        if ! [ -z "$grub_search" ]
+        then
+            echo "	$grub_search"
+        fi
         # grub_root is like (hd0,msdos6)
         # path_to_kernel is like /bedrock/strata/fedora/boot/ (set to /boot/ for kernels in the rootfs)
         # basename is like vmlinuz-4.9
-        echo "	linux $grub_root""$path_to_kernel""$basename" "$GRUB_CMDLINE_LINUX" rw init=/bedrock/sbin/brn root=/dev/"$root" strata="$init_strata" strata_init="$init"
+        echo "	linux $grub_root""$path_to_kernel""$basename" "$GRUB_CMDLINE_LINUX" rw init=/bedrock/sbin/brn root="$init_root" strata="$init_strata" strata_init="$init"
         echo "	initrd $grub_root""$path_to_kernel""$(basename $initrd)"
 
         echo "}"
