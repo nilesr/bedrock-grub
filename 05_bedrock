@@ -13,7 +13,7 @@ fi
 
 if [ -z "$GRUB_CMDLINE_LINUX" ]
 then
-	GRUB_CMDLINE_LINUX="rw quiet enforcing=0"
+	GRUB_CMDLINE_LINUX="rw quiet enforcing=0 lang=en_US kmap=us"
 fi
 
 rootfs=$(bri -a rootfs)
@@ -148,10 +148,10 @@ for kernel_strata in $(bri -L); do
         # grub_root is like (hd0,msdos6)
         # path_to_kernel is like /bedrock/strata/fedora/boot/ (set to /boot/ for kernels in the rootfs)
         # basename is like vmlinuz-4.9
-        echo "	linux $grub_root""$path_to_kernel""$basename" "$GRUB_CMDLINE_LINUX" rw init=/bedrock/sbin/brn root="$init_root" strata="$init_strata" strata_init="$init"
+        echo "	linux16 $grub_root""$path_to_kernel""$basename" "$GRUB_CMDLINE_LINUX" rw init=/bedrock/sbin/brn root="$init_root" strata="$init_strata" strata_init="$init"
         if ! [ -z "$initrd" ]
         then
-            echo "	initrd $grub_root""$path_to_kernel""$(basename $initrd)"
+            echo "	initrd16 $grub_root""$path_to_kernel""$(basename $initrd)"
         fi
 
         echo "}"
