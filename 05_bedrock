@@ -1,5 +1,14 @@
 #!/bedrock/libexec/busybox sh
 
+upper() {
+    if which python3 &> /dev/null
+    then
+        echo "$@" | python3 -c "import sys;x=sys.stdin.read();print(x[0].upper() + x[1:],end='')"
+        return
+    fi
+    echo "$@"
+}
+
 log() {
     echo "$@" >&2
     echo "# $@"
@@ -140,7 +149,7 @@ for kernel_strata in $(bri -L); do
             echo "# Strata $init_strata does not have an init. It's probably rootfs or global or something"
             continue
         fi
-        echo "menuentry 'Bedrock Linux - kernel from $kernel_strata - init from $init_strata - $init' {"
+        echo "menuentry 'Bedrock Linux - kernel from $(upper $kernel_strata) - init from $(upper $init_strata) - $init' {"
         if ! [ -z "$grub_search" ]
         then
             echo "	$grub_search"
