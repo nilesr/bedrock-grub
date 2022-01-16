@@ -25,8 +25,6 @@ then
 	GRUB_CMDLINE_LINUX="rw quiet enforcing=0 lang=en_US kmap=us"
 fi
 
-rootfs=$(bri -a rootfs)
-
 init_root=$(grep -oE 'root=[^ ]*' /proc/cmdline | sed s/root=//)
 # DEBUG ONLY
 #init_root="UUID=your-uuid-goes-here"
@@ -41,7 +39,7 @@ then
 else
     if [ -z "$root" ]
     then
-        root=$(lsblk -r|grep /bedrock/strata/"$rootfs"| tail -n 1 | cut -d ' ' -f 1) # not ideal
+        root=$(lsblk -r|grep /bedrock/strata/bedrock| tail -n 1 | cut -d ' ' -f 1) # not ideal
         log "debug - root was garbage so guessing $root"
     fi
 
@@ -58,7 +56,7 @@ else
 
     grub_root="(hd"
     case $(echo "$root"|cut -c -3) in
-        sda)
+        sda|nvme0)
             grub_root=$grub_root"0" ;;
         sdb)
             grub_root=$grub_root"1" ;;
@@ -80,16 +78,18 @@ source /usr/share/grub/grub-mkconfig_lib
 source "$pkgdatadir/grub-mkconfig_lib"
 
 
-find_kernel() {
+find_kernels() {
     list=
-    for i in /bedrock/strata/"$1"/boot/kernel-* /bedrock/strata/"$1"/boot/vmlinuz-* ; do
-        list="$list $i"
+    for i in /boot/kernel-* /boot/vmlinuz-* ; do
+        if test -f "$i"; then
+            list="$list $i"
+        fi
     done
 
-    linux=$(version_find_latest $list) # Do not double quote $list, it needs to expand
-    basename=$(basename "$linux")
-    version=$(echo "$basename" | sed -e "s,vmlinuz-,,g")
-    alt_version=$(echo "$version" | sed -e "s,\.old$,,g")
+    #linux=$(version_find_latest $list) # Do not double quote $list, it needs to expand
+    #basename=$(basename "$linux")
+    #version=$(echo "$basename" | sed -e "s,vmlinuz-,,g")
+    #alt_version=$(echo "$version" | sed -e "s,\.old$,,g")
 }
 
 find_initrd_for_kernel() {
@@ -104,7 +104,7 @@ find_initrd_for_kernel() {
        "initramfs-genkernel-${GENKERNEL_ARCH}-${version}" \
        "initramfs-genkernel-${GENKERNEL_ARCH}-${alt_version}"; do
 
-        if [ -e "/bedrock/strata/$1/boot/$i" ]
+        if [ -e "/boot/$i" ]
         then
             #if grub_file_is_not_garbage "$i"
             #then
@@ -117,39 +117,23 @@ find_initrd_for_kernel() {
 
 
  
-for kernel_strata in $(bri -L); do
-    linux=
-    find_kernel "$kernel_strata"
-    find_initrd_for_kernel "$kernel_strata"
-    if [ -z "$linux" ] || ! [ -e "$linux" ]
-    then
-        log "$kernel_strata does not appear to provide a kernel"
-        continue
-    fi
+list=
+find_kernels
+for linux in $list; do
+    basename=$(basename "$linux")
+    version=$(echo "$basename" | sed -e "s,vmlinuz-,,g")
+    alt_version=$(echo "$version" | sed -e "s,\.old$,,g")
+    find_initrd_for_kernel
     if [ -z "$initrd" ]
     then
-        log "$kernel_strata does not appear to provide a matching initramfs for $linux . Please make sure you compiled with fuse support"
+        log "Kernel $linux does not appear to provide a matching initramfs for $linux . Please make sure you compiled with fuse support"
     fi
-    log "Found kernel in $kernel_strata: $basename"
-    path_to_kernel=/bedrock/strata/"$kernel_strata"/boot/
-    if [ "$(bri -a rootfs)" = $kernel_strata ]
-    then
-        path_to_kernel=/boot/
-    fi
+    log "Found kernel in $linux"
+    path_to_kernel=/boot/
 
-    for init_strata in $(bri -L); do
-        if [ "$(bri -c "$init_strata" enable)" = "manual" ]
-        then
-            log "Strata $init_strata is not set to be enabled on boot. Not configuring"
-            continue
-        fi
-        init="$(bri -c "$init_strata" init)"
-        if [ -z "$init" ]
-        then
-            echo "# Strata $init_strata does not have an init. It's probably rootfs or global or something"
-            continue
-        fi
-        echo "menuentry 'Bedrock Linux - kernel from $(upper $kernel_strata) - init from $(upper $init_strata) - $init' {"
+    for init_strata in $(brl list --enabled); do
+        init="/sbin/init"
+        echo "menuentry 'Bedrock Linux - kernel $linux - init from $(upper $init_strata) - $init' {"
         if ! [ -z "$grub_search" ]
         then
             echo "	$grub_search"
@@ -157,10 +141,10 @@ for kernel_strata in $(bri -L); do
         # grub_root is like (hd0,msdos6)
         # path_to_kernel is like /bedrock/strata/fedora/boot/ (set to /boot/ for kernels in the rootfs)
         # basename is like vmlinuz-4.9
-        echo "	linux16 $grub_root""$path_to_kernel""$basename" "$GRUB_CMDLINE_LINUX" rw init=/bedrock/sbin/brn root="$init_root" strata="$init_strata" strata_init="$init"
+        echo "	linux $grub_root""$path_to_kernel""$basename" "$GRUB_CMDLINE_LINUX" rw init=/sbin/init root="$init_root" strata="$init_strata" strata_init="$init"
         if ! [ -z "$initrd" ]
         then
-            echo "	initrd16 $grub_root""$path_to_kernel""$(basename $initrd)"
+            echo "	initrd $grub_root""$path_to_kernel""$(basename $initrd)"
         fi
 
         echo "}"
