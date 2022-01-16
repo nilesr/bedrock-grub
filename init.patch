@@ -1,0 +1,15 @@
+--- /home/niles/init	2022-01-15 19:02:04.555521337 -0800
++++ /init	2022-01-15 18:09:43.756716796 -0800
+@@ -285,6 +285,12 @@
+ }
+ 
+ get_init_choice() {
++	passed_strata=$(grep -Eo 'strata=[^ ]*' /proc/cmdline | sed s/strata=//)
++	passed_init=$(grep -Eo 'strata_init=[^ ]*' /proc/cmdline | sed s/strata_init=//)
++	if ! test -z "$passed_strata"; then
++		echo "$passed_strata":"$passed_init"
++		return
++	fi
+ 	echo "Select init number to use for this session" >&2
+ 	echo "See /bedrock/etc/bedrock.conf [init] to change default init and timeout" >&2
+ 	echo "" >&2
